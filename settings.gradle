@@ -1,0 +1,2 @@
+include ':app', ':connector'
+rootProject.name='BlEasyConnector'
