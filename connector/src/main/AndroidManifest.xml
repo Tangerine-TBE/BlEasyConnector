@@ -1,2 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.tangerine.connector" />
+    package="com.tangerine.connector" >
+
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+</manifest>
