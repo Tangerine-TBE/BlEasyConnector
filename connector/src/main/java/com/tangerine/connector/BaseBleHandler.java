@@ -39,10 +39,13 @@ public final class BaseBleHandler {
     private SvcChrPair p;
     private int mExpectedState;
     private static BaseBleHandler mBaseBleHandler;
+
     private BaseBleHandler(Context context) {
-        mNotifyChrs =new ArrayList<>();
+        mNotifyChrs = new ArrayList<>();
         mBLEScannerCallBck = makeScanCallBack(context);
+        mGattCallBack = makeGattCallback();
     }
+
     /**
      * Author:Tangerine
      * Date:2020-6-23
@@ -58,6 +61,7 @@ public final class BaseBleHandler {
         }
         return mBaseBleHandler;
     }
+
     /**
      * @param pairInfo           Bluetooth information for the device
      * @param iBluetoothListener Mapping relationships to remote devices
@@ -74,7 +78,8 @@ public final class BaseBleHandler {
         mDevice = mAdapter.getRemoteDevice(pairInfo.address);
         return true;
     }
-    public final   void connect() {
+
+    public final void connect() {
         mExpectedState = BluetoothProfile.STATE_CONNECTED;
         if (mConnectTask != null) {
             mConnectTask.cancel();
@@ -82,6 +87,7 @@ public final class BaseBleHandler {
         }
         new Handler(Looper.getMainLooper()).postDelayed(mConnectTask = new ConnectTask(), 2000);
     }
+
     private class ConnectTask implements Runnable {
         private boolean shallRun = true;
 
@@ -104,6 +110,7 @@ public final class BaseBleHandler {
             mBLEScanner.startScan(mBLEScannerCallBck);
         }
     }
+
     private ScanCallback makeScanCallBack(final Context context) {
 
         return new ScanCallback() {
@@ -123,8 +130,10 @@ public final class BaseBleHandler {
             }
         };
     }
+
     /**
      * Register for listening for the Bluetooth service
+     *
      * @param svc The UUID of the Bluetooth service
      * @param chr The UUID of the Bluetooth characteristic
      */
@@ -148,6 +157,7 @@ public final class BaseBleHandler {
         }
         mNotifyChrs.add(p);
     }
+
     public final void unregisterChrNotify(UUID svc, UUID chr) {
         SvcChrPair p = new SvcChrPair(svc, chr);
         if (!mNotifyChrs.contains(p) || mGatt == null) {
@@ -161,6 +171,7 @@ public final class BaseBleHandler {
         }
         mNotifyChrs.remove(p);
     }
+
     private static class SvcChrPair {
         UUID svcUid;
         UUID chrUid;
@@ -179,6 +190,7 @@ public final class BaseBleHandler {
             return svcUid.equals(ano.svcUid) && chrUid.equals(ano.chrUid);
         }
     }
+
     private boolean refreshDevicesCache() {
         if (mGatt != null) {
             try {
@@ -195,42 +207,33 @@ public final class BaseBleHandler {
         }
         return false;
     }
+
     private BluetoothGattCallback makeGattCallback() {
         return new BluetoothGattCallback() {
-            /**
-             * @date 2019/10/10
-             * @author:TanBoen
-             * @description: 当蓝牙连接状态发生改变
-             */
             @Override
             public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     switch (newState) {
                         case BluetoothProfile.STATE_CONNECTED:
                             if (mExpectedState == BluetoothProfile.STATE_DISCONNECTED) {
-                                Log.d(TAG, "已连接但期望离线");
                                 disconnect();
-                                tryDisconnected();
+                                parentListener.disconnected();
                                 return;
                             }
-                            Log.d(TAG, "已连接");
-                            tryConnected();
+                            parentListener.connected();
                             gatt.discoverServices();
                             break;
                         case BluetoothProfile.STATE_DISCONNECTED:
-                            tryDisconnected();
+                            parentListener.disconnected();
                             if (mExpectedState == BluetoothProfile.STATE_CONNECTED) {
-                                Log.d(TAG, "已离线但期望连接");
-                                unregisterAllChrNotifies();
+                                unregisterChrNotify(p.svcUid, p.chrUid);
                                 connect();
                             }
-                            Log.d(TAG, "已离线");
                             break;
                     }
                 } else {
-                    tryDisconnected();
+                    parentListener.disconnected();
                     if (mExpectedState == BluetoothProfile.STATE_CONNECTED) {
-                        Log.d(TAG, "已超时再尝试连接");
                         disconnect();
                         connect();
                     }
@@ -240,37 +243,33 @@ public final class BaseBleHandler {
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    tryReadyToWrite();
-                    return;
+                    parentListener.readyToWriteData();
                 }
-                Log.e(TAG, "发现服务异常" + status);
             }
 
             @Override
             public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic chr, int status) {
                 byte[] raw = chr.getValue();
-                Log.d(TAG, "读取特性 " + chr.getUuid() + " 值 " + StringUtils.byte2HexStr(raw));
-                tryReceivedData(raw);
+                parentListener.receivedData(raw);
             }
 
             @Override
             public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic chr, int status) {
 
-                Log.e(TAG, "写入数据回调" + Arrays.toString(chr.getValue()));
             }
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic chr) {
                 byte[] raw = chr.getValue();
-                Log.d(TAG, "特性变动 " + chr.getUuid() + " 值 " + StringUtils.byte2HexStr(raw));
-                tryReceivedData(raw);
+                parentListener.receivedData(raw);
             }
         };
     }
-    public void disconnect() {
+
+    public final void disconnect() {
         mExpectedState = BluetoothProfile.STATE_DISCONNECTED;
-        unregisterChrNotify(p.svcUid,p.chrUid);
-        tryDisconnected();
+        unregisterChrNotify(p.svcUid, p.chrUid);
+        parentListener.disconnected();
 
         if (mGatt != null) {
 //            refreshDevicesCache();
@@ -278,7 +277,7 @@ public final class BaseBleHandler {
             mGatt.close();
             mGatt = null;
         }
-        if (mBLEScanner != null){
+        if (mBLEScanner != null) {
 
             mBLEScanner.stopScan(mBLEScannerCallBck);
         }
