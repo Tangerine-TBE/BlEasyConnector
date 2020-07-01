@@ -16,16 +16,19 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.tangerine.util.StringUtil;
+
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Timer;
 import java.util.UUID;
 
 /**
  * Created by Tangerine on 2020-6-23.
  */
-public final class BaseBleHandler {
+public final class BaseBleHandler  {
     private static ConnectTask mConnectTask;
     private BluetoothDevice mDevice;
     private IBluetoothListener parentListener;
@@ -38,30 +41,17 @@ public final class BaseBleHandler {
     private BluetoothLeScanner mBLEScanner;
     private SvcChrPair p;
     private int mExpectedState;
-    private static BaseBleHandler mBaseBleHandler;
+    private Timer mTimer;
+    private boolean mReTryConnect;
+    private int mTime;
 
-    private BaseBleHandler(Context context) {
+    private BaseBleHandler(Context context,int time) {
+        this.mTime = time;
+
         mNotifyChrs = new ArrayList<>();
         mBLEScannerCallBck = makeScanCallBack(context);
         mGattCallBack = makeGattCallback();
     }
-
-    /**
-     * Author:Tangerine
-     * Date:2020-6-23
-     * Direction: Single class in lazy mode
-     */
-    public static BaseBleHandler getInstance(Context context) {
-        if (mBaseBleHandler == null) {
-            synchronized (BaseBleHandler.class) {
-                if (mBaseBleHandler == null) {
-                    mBaseBleHandler = new BaseBleHandler(context);
-                }
-            }
-        }
-        return mBaseBleHandler;
-    }
-
     /**
      * @param pairInfo           Bluetooth information for the device
      * @param iBluetoothListener Mapping relationships to remote devices
@@ -79,6 +69,28 @@ public final class BaseBleHandler {
         return true;
     }
 
+    public boolean writeReTry(UUID svc, UUID wri, byte[] any) {
+        boolean failToWrite = true;
+        if (mGatt != null) {
+            BluetoothGattService service = mGatt.getService(svc);
+            if (service != null) {
+                BluetoothGattCharacteristic characteristic = service.getCharacteristic(wri);
+                if (characteristic != null) {
+                    byte[][] moreAny = StringUtil.splitBytes(any, 20);
+                    for (byte[] data : moreAny) {
+                        characteristic.setValue(data);
+                        boolean result = mGatt.writeCharacteristic(characteristic);
+                        if (!result) {
+                            failToWrite = false;
+                        }
+                    }
+                    return failToWrite;
+                }
+            }
+        }
+        return true;
+    }
+
     public final void connect() {
         mExpectedState = BluetoothProfile.STATE_CONNECTED;
         if (mConnectTask != null) {
@@ -88,10 +100,12 @@ public final class BaseBleHandler {
         new Handler(Looper.getMainLooper()).postDelayed(mConnectTask = new ConnectTask(), 2000);
     }
 
-    private class ConnectTask implements Runnable {
+
+
+    private class ConnectTask implements Runnable,  ITimerListener {
         private boolean shallRun = true;
 
-        public void cancel() {
+        void cancel() {
             shallRun = false;
         }
 
@@ -104,10 +118,21 @@ public final class BaseBleHandler {
             if (!shallRun) {
                 return;
             }
-
+            mTimer = new Timer();
+            BaseTimerTask mBaseTimeTask = new BaseTimerTask(this);
+            mTimer.schedule(mBaseTimeTask,0,mTime);
             mBLEScanner = mAdapter.getBluetoothLeScanner();
             mStep = 0;
             mBLEScanner.startScan(mBLEScannerCallBck);
+        }
+
+        @Override
+        public void onTime() {
+            if (mTimer != null){
+                mTimer.cancel();
+                mTimer  = null;
+                mReTryConnect = true;
+            }
         }
     }
 
@@ -123,9 +148,10 @@ public final class BaseBleHandler {
                     mBLEScanner.stopScan(this);
                     mGatt = device.connectGatt(context, false, mGattCallBack);
                 }
-                if (mStep >= 200) {
+                if (mReTryConnect) {
                     mBLEScanner.stopScan(this);
                     connect();
+                    mReTryConnect = false;
                 }
             }
         };
@@ -270,7 +296,6 @@ public final class BaseBleHandler {
         mExpectedState = BluetoothProfile.STATE_DISCONNECTED;
         unregisterChrNotify(p.svcUid, p.chrUid);
         parentListener.disconnected();
-
         if (mGatt != null) {
 //            refreshDevicesCache();
             mGatt.disconnect();
