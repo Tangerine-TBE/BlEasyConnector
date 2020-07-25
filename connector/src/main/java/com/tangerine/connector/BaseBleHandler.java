@@ -33,7 +33,6 @@ public final class BaseBleHandler  {
     private static ConnectTask mConnectTask;
     private BluetoothDevice mDevice;
     private IBluetoothListener parentListener;
-    private int mStep;
     private BluetoothGatt mGatt;
     private BluetoothGattCallback mGattCallBack;
     private List<SvcChrPair> mNotifyChrs;
@@ -125,7 +124,6 @@ public final class BaseBleHandler  {
             BaseTimerTask mBaseTimeTask = new BaseTimerTask(this);
             mTimer.schedule(mBaseTimeTask,0,mTime);
             mBLEScanner = mAdapter.getBluetoothLeScanner();
-            mStep = 0;
             mBLEScanner.startScan(mBLEScannerCallBck);
         }
 
@@ -145,7 +143,6 @@ public final class BaseBleHandler  {
 
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
-                mStep++;
                 BluetoothDevice device = result.getDevice();
                 if (device.getAddress().equals(mDevice.getAddress())) {
                     mBLEScanner.stopScan(this);
@@ -228,14 +225,31 @@ public final class BaseBleHandler  {
                         case BluetoothProfile.STATE_CONNECTED:
                             if (mExpectedState == BluetoothProfile.STATE_DISCONNECTED) {
                                 disconnect();
-                                parentListener.disconnected();
+
+                                activity.runOnUiThread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        parentListener.disconnected();
+                                    }
+                                });
                                 return;
                             }
-                            parentListener.connected();
+                            activity.runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    parentListener.connected();
+                                }
+                            });
                             gatt.discoverServices();
                             break;
                         case BluetoothProfile.STATE_DISCONNECTED:
-                            parentListener.disconnected();
+                            activity.runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    parentListener.disconnected();
+
+                                }
+                            });
                             if (mExpectedState == BluetoothProfile.STATE_CONNECTED) {
                                 unregisterChrNotify(p.svcUid, p.chrUid);
                                 connect();
@@ -243,7 +257,13 @@ public final class BaseBleHandler  {
                             break;
                     }
                 } else {
-                    parentListener.disconnected();
+                    activity.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            parentListener.disconnected();
+
+                        }
+                    });
                     if (mExpectedState == BluetoothProfile.STATE_CONNECTED) {
                         disconnect();
                         connect();
@@ -265,8 +285,14 @@ public final class BaseBleHandler  {
 
             @Override
             public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic chr, int status) {
-                byte[] raw = chr.getValue();
-                parentListener.receivedData(raw);
+                final byte[] raw = chr.getValue();
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        parentListener.receivedData(raw);
+
+                    }
+                });
             }
 
             @Override
@@ -276,8 +302,14 @@ public final class BaseBleHandler  {
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic chr) {
-                byte[] raw = chr.getValue();
-                parentListener.receivedData(raw);
+                final byte[] raw = chr.getValue();
+                activity.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        parentListener.receivedData(raw);
+
+                    }
+                });
             }
         };
     }
@@ -285,7 +317,13 @@ public final class BaseBleHandler  {
     public final void disconnect() {
         mExpectedState = BluetoothProfile.STATE_DISCONNECTED;
         unregisterChrNotify(p.svcUid, p.chrUid);
-        parentListener.disconnected();
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                parentListener.disconnected();
+
+            }
+        });
         if (mGatt != null) {
 //            refreshDevicesCache();
             mGatt.disconnect();
