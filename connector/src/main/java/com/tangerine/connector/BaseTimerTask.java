@@ -13,8 +13,9 @@ public final class BaseTimerTask extends TimerTask {
             iTimerListener.onTime();
         }
     }
-}
 
-interface ITimerListener{
-    void onTime();
+    interface ITimerListener{
+        void onTime();
+    }
+
 }

@@ -1,5 +1,6 @@
 package com.tangerine.connector;
 
+import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -44,13 +45,15 @@ public final class BaseBleHandler  {
     private Timer mTimer;
     private boolean mReTryConnect;
     private int mTime;
+    private Activity activity;
 
-    private BaseBleHandler(Context context,int time) {
+    private BaseBleHandler(Activity activity, int time) {
         this.mTime = time;
 
         mNotifyChrs = new ArrayList<>();
-        mBLEScannerCallBck = makeScanCallBack(context);
+        mBLEScannerCallBck = makeScanCallBack(activity.getBaseContext());
         mGattCallBack = makeGattCallback();
+        this.activity = activity;
     }
     /**
      * @param pairInfo           Bluetooth information for the device
@@ -102,7 +105,7 @@ public final class BaseBleHandler  {
 
 
 
-    private class ConnectTask implements Runnable,  ITimerListener {
+    private class ConnectTask implements Runnable, BaseTimerTask.ITimerListener {
         private boolean shallRun = true;
 
         void cancel() {
@@ -216,24 +219,6 @@ public final class BaseBleHandler  {
             return svcUid.equals(ano.svcUid) && chrUid.equals(ano.chrUid);
         }
     }
-
-    private boolean refreshDevicesCache() {
-        if (mGatt != null) {
-            try {
-                Method method = mGatt.getClass().getMethod("refresh", new Class[0]);
-                if (method != null) {
-                    boolean boost = (Boolean) method.invoke(
-                            mGatt, new Object[0]);
-                    return boost;
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-
-        }
-        return false;
-    }
-
     private BluetoothGattCallback makeGattCallback() {
         return new BluetoothGattCallback() {
             @Override
@@ -269,7 +254,12 @@ public final class BaseBleHandler  {
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    parentListener.readyToWriteData();
+                    activity.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            parentListener.readyToWriteData();
+                        }
+                    });
                 }
             }
 
@@ -303,10 +293,17 @@ public final class BaseBleHandler  {
             mGatt = null;
         }
         if (mBLEScanner != null) {
-
             mBLEScanner.stopScan(mBLEScannerCallBck);
         }
     }
+
+    public final void Destroy(){
+        if (activity != null){
+            activity = null;
+        }
+        System.gc();
+    }
+
 }
 
 
